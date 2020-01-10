@@ -39,49 +39,8 @@
 
 #include "hostinfo.h"
 
-HOST_INFO::HOST_INFO() {
-    clear_host_info();
-}
-
-void HOST_INFO::clear_host_info() {
-    timezone = 0;
-    safe_strcpy(domain_name, "");
-    safe_strcpy(serialnum, "");
-    safe_strcpy(ip_addr, "");
-    safe_strcpy(host_cpid, "");
-
-    p_ncpus = 0;
-    safe_strcpy(p_vendor, "");
-    safe_strcpy(p_model, "");
-    safe_strcpy(p_features, "");
-    p_fpops = 0;
-    p_iops = 0;
-    p_membw = 0;
-    p_calculated = 0;
-    p_vm_extensions_disabled = false;
-
-    m_nbytes = 0;
-    m_cache = 0;
-    m_swap = 0;
-
-    d_total = 0;
-    d_free = 0;
-
-    safe_strcpy(os_name, "");
-    safe_strcpy(os_version, "");
-
-    os_wsl_enabled = false;
-    safe_strcpy(os_wsl_name, "");
-    safe_strcpy(os_wsl_version, "");
-
-    safe_strcpy(product_name, "");
-    safe_strcpy(mac_address, "");
-
-    safe_strcpy(virtualbox_version, "");
-    num_opencl_cpu_platforms = 0;
-}
-
 int HOST_INFO::parse(XML_PARSER& xp, bool static_items_only) {
+    clear();
     while (!xp.get_tag()) {
         if (xp.match_tag("/host_info")) return 0;
         if (xp.parse_double("p_fpops", p_fpops)) {
@@ -129,9 +88,13 @@ int HOST_INFO::parse(XML_PARSER& xp, bool static_items_only) {
         if (xp.parse_double("d_free", d_free)) continue;
         if (xp.parse_str("os_name", os_name, sizeof(os_name))) continue;
         if (xp.parse_str("os_version", os_version, sizeof(os_version))) continue;
-        if (xp.parse_bool("os_wsl_enabled", os_wsl_enabled)) continue;
-        if (xp.parse_str("os_wsl_name", os_wsl_name, sizeof(os_wsl_name))) continue;
-        if (xp.parse_str("os_wsl_version", os_wsl_version, sizeof(os_wsl_version))) continue;
+#ifdef _WIN64
+        if (xp.parse_bool("os_wsl_enabled", wsl_available)) continue;
+        if (xp.match_tag("wsl")) {
+            this->wsls.parse(xp);
+            continue;
+        }
+#endif
         if (xp.parse_str("product_name", product_name, sizeof(product_name))) continue;
         if (xp.parse_str("virtualbox_version", virtualbox_version, sizeof(virtualbox_version))) continue;
         if (xp.match_tag("coprocs")) {
@@ -162,7 +125,7 @@ int HOST_INFO::parse(XML_PARSER& xp, bool static_items_only) {
 int HOST_INFO::write(
     MIOFILE& out, bool include_net_info, bool include_coprocs
 ) {
-    char pv[265], pm[256], pf[1024], osn[256], osv[256], oswsln[256], oswslv[256], pn[256];
+    char pv[265], pm[256], pf[1024], osn[256], osv[256], pn[256];
     out.printf(
         "<host_info>\n"
         "    <timezone>%d</timezone>\n",
@@ -181,8 +144,6 @@ int HOST_INFO::write(
     xml_escape(p_features, pf, sizeof(pf));
     xml_escape(os_name, osn, sizeof(osn));
     xml_escape(os_version, osv, sizeof(osv));
-    xml_escape(os_wsl_name, oswsln, sizeof(oswsln));
-    xml_escape(os_wsl_version, oswslv, sizeof(oswslv));
     out.printf(
         "    <host_cpid>%s</host_cpid>\n"
         "    <p_ncpus>%d</p_ncpus>\n"
@@ -201,7 +162,8 @@ int HOST_INFO::write(
         "    <d_free>%f</d_free>\n"
         "    <os_name>%s</os_name>\n"
         "    <os_version>%s</os_version>\n"
-        "    <n_usable_coprocs>%d</n_usable_coprocs>\n",
+        "    <n_usable_coprocs>%d</n_usable_coprocs>\n"
+        "    <wsl_available>%d</wsl_available>\n",
         host_cpid,
         p_ncpus,
         pv,
@@ -219,19 +181,18 @@ int HOST_INFO::write(
         d_free,
         osn,
         osv,
-        coprocs.ndevs()
+        coprocs.ndevs(),
+#ifdef _WIN64
+        wsl_available ? 1 : 0
+#else
+        0
+#endif
     );
-    if (os_wsl_enabled) {
-        out.printf(
-            "    <os_wsl_enabled>%d</os_wsl_enabled>\n"
-            "    <os_wsl_name>%s</os_wsl_name>\n"
-            "    <os_wsl_version>%s</os_wsl_version>\n"
-            ,
-            os_wsl_enabled,
-            oswsln,
-            oswslv
-        );
+#ifdef _WIN64
+    if (wsl_available) {
+        wsls.write_xml(out);
     }
+#endif
     if (strlen(product_name)) {
         xml_escape(product_name, pn, sizeof(pn));
         out.printf(

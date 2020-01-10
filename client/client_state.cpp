@@ -128,6 +128,7 @@ CLIENT_STATE::CLIENT_STATE()
     safe_strcpy(client_brand, "");
     exit_after_app_start_secs = 0;
     app_started = 0;
+    cmdline_dir = false;
     exit_before_upload = false;
     run_test_app = false;
 #ifndef _WIN32
@@ -180,6 +181,7 @@ CLIENT_STATE::CLIENT_STATE()
     gui_rpc_unix_domain = false;
     new_version_check_time = 0;
     all_projects_list_check_time = 0;
+    client_version_check_url = DEFAULT_VERSION_CHECK_URL;
     detach_console = false;
 #ifdef SANDBOX
     g_use_sandbox = true; // User can override with -insecure command-line arg
@@ -253,10 +255,20 @@ void CLIENT_STATE::show_host_info() {
     );
 
 #ifdef _WIN64
-    if (host_info.os_wsl_enabled) {
-        msg_printf(NULL, MSG_INFO,
-            "WSL detected: %s: %s", host_info.os_wsl_name, host_info.os_wsl_version
-        );
+    if (host_info.wsl_available) {
+        msg_printf(NULL, MSG_INFO, "WSL detected:");
+        for (size_t i = 0; i < host_info.wsls.wsls.size(); ++i) {
+            const WSL& wsl = host_info.wsls.wsls[i];
+            if (wsl.is_default) {
+                msg_printf(NULL, MSG_INFO,
+                    "   [%s] (default): %s (%s)", wsl.distro_name.c_str(), wsl.name.c_str(), wsl.version.c_str()
+                );
+            } else {
+                msg_printf(NULL, MSG_INFO,
+                    "   [%s]: %s (%s)", wsl.distro_name.c_str(), wsl.name.c_str(), wsl.version.c_str()
+                );
+            }
+        }
     } else {
         msg_printf(NULL, MSG_INFO, "No WSL found.");
     }
@@ -613,6 +625,13 @@ int CLIENT_STATE::init() {
     // domain_name for Android
     //
     host_info.get_host_info(true);
+
+    // clear the VM extensions disabled flag.
+    // It's possible that the user enabled them since the last VM failure,
+    // or that the last failure was specious.
+    //
+    host_info.p_vm_extensions_disabled = false;
+
     set_ncpus();
     show_host_info();
 
@@ -623,6 +642,7 @@ int CLIENT_STATE::init() {
     // check for app_config.xml files in project dirs
     //
     check_app_config();
+    show_app_config();
 
     // this needs to go after parse_state_file() because
     // GPU exclusions refer to projects
@@ -630,6 +650,8 @@ int CLIENT_STATE::init() {
     cc_config.show();
 
     // inform the user if there's a newer version of client
+    // NOTE: this must be called AFTER
+    // read_vc_config_file()
     //
     newer_version_startup_check();
 
@@ -712,8 +734,6 @@ int CLIENT_STATE::init() {
 
     check_if_need_benchmarks();
 
-    log_show_projects();
-
     read_global_prefs();
 
     // do CPU scheduler and work fetch
@@ -745,6 +765,8 @@ int CLIENT_STATE::init() {
     process_autologin(true);
     acct_mgr_info.init();
     project_init.init();
+
+    log_show_projects();    // this must follow acct_mgr_info.init()
 
     // set up for handling GUI RPCs
     //
@@ -813,6 +835,11 @@ int CLIENT_STATE::init() {
         all_projects_list_check();
         notices.init_rss();
     }
+
+    // check for jobs with finish files
+    // (i.e. they finished just as client was exiting)
+    //
+    active_tasks.check_for_finished_jobs();
 
     // warn user if some jobs need more memory than available
     //

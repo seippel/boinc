@@ -68,6 +68,8 @@
 #include "log_flags.h"
 #include "client_state.h"
 
+#include <vector>
+
 // defaults in case benchmarks fail or time out.
 // better to err on the low side so hosts don't get too much work
 
@@ -119,7 +121,7 @@ struct BENCHMARK_DESC {
 #endif
 };
 
-static BENCHMARK_DESC* benchmark_descs=0;
+static std::vector<BENCHMARK_DESC> benchmark_descs;
 static double cpu_benchmarks_start;
 static int bm_ncpus;
     // user might change ncpus during benchmarks.
@@ -173,7 +175,6 @@ int cpu_benchmarks(BENCHMARK_DESC* bdp) {
     double vax_mips, int_loops=0, int_time=0, fp_time;
 
     bdp->error_str[0] = '\0';
-    host_info.clear_host_info();
 
 #if defined(ANDROID) && defined(__arm__)
     // check for FP accelerator: VFP, Neon, or none;
@@ -234,7 +235,7 @@ DWORD WINAPI win_cpu_benchmarks(LPVOID p) {
 }
 #endif
 
-void CLIENT_STATE::start_cpu_benchmarks() {
+void CLIENT_STATE::start_cpu_benchmarks(bool force) {
     int i;
 
     if (benchmarks_running) {
@@ -244,7 +245,7 @@ void CLIENT_STATE::start_cpu_benchmarks() {
         return;
     }
 
-    if (cc_config.skip_cpu_benchmarks) {
+    if (cc_config.skip_cpu_benchmarks && !force) {
         if (log_flags.benchmark_debug) {
             msg_printf(0, MSG_INFO,
                 "[benchmark] start_cpu_benchmarks(): Skipping CPU benchmarks"
@@ -260,11 +261,10 @@ void CLIENT_STATE::start_cpu_benchmarks() {
     remove_benchmark_file(BM_TYPE_INT);
     cpu_benchmarks_start = dtime();
 
-    if (benchmark_descs) {
-        free(benchmark_descs);
-    }
+    benchmark_descs.clear();
+    benchmark_descs.resize(ncpus);
+
     bm_ncpus = ncpus;
-    benchmark_descs = (BENCHMARK_DESC*)calloc(bm_ncpus, sizeof(BENCHMARK_DESC));
     benchmarks_running = true;
 
     for (i=0; i<bm_ncpus; i++) {
@@ -273,7 +273,7 @@ void CLIENT_STATE::start_cpu_benchmarks() {
         benchmark_descs[i].error = false;
 #ifdef _WIN32
         benchmark_descs[i].handle = CreateThread(
-            NULL, 0, win_cpu_benchmarks, benchmark_descs+i, 0,
+            NULL, 0, win_cpu_benchmarks, &benchmark_descs[i], 0,
             &benchmark_descs[i].pid
         );
         int n = host_info.p_ncpus;
@@ -289,7 +289,7 @@ void CLIENT_STATE::start_cpu_benchmarks() {
                 perror("setpriority");
             }
 #endif
-            int retval = cpu_benchmarks(benchmark_descs+i);
+            int retval = cpu_benchmarks(&benchmark_descs[i]);
             fflush(NULL);
             _exit(retval);
         } else {

@@ -74,11 +74,7 @@
 #include <sys/stat.h>
 
 #if HAVE_SYS_SWAP_H
-#if defined(ANDROID) && !defined(ANDROID_64)
-#include <linux/swap.h>
-#else
 #include <sys/swap.h>
-#endif
 #endif
 
 #if HAVE_SYS_SYSCTL_H
@@ -469,30 +465,30 @@ static void parse_cpuinfo_linux(HOST_INFO& host) {
         msg_printf(NULL, MSG_INFO,
             "Can't open /proc/cpuinfo to get CPU info"
         );
-        strcpy(host.p_model, "unknown");
-        strcpy(host.p_vendor, "unknown");
+        safe_strcpy(host.p_model, "unknown");
+        safe_strcpy(host.p_vendor, "unknown");
         return;
     }
 
 #ifdef __mips__
-    strcpy(host.p_model, "MIPS ");
+    safe_strcpy(host.p_model, "MIPS ");
     model_hack = true;
 #elif __alpha__
-    strcpy(host.p_vendor, "HP (DEC) ");
+    safe_strcpy(host.p_vendor, "HP (DEC) ");
     vendor_hack = true;
 #elif __hppa__
-    strcpy(host.p_vendor, "HP ");
+    safe_strcpy(host.p_vendor, "HP ");
     vendor_hack = true;
 #elif __ia64__
-    strcpy(host.p_model, "IA-64 ");
+    safe_strcpy(host.p_model, "IA-64 ");
     model_hack = true;
 #elif defined(__arm__) || defined(__aarch64__)
-    strcpy(host.p_vendor, "ARM");
+    safe_strcpy(host.p_vendor, "ARM");
     vendor_hack = vendor_found = true;
 #endif
 
     host.m_cache=-1;
-    strcpy(features, "");
+    safe_strcpy(features, "");
     while (fgets(buf, 1024, f)) {
         strip_whitespace(buf);
         if (
@@ -533,7 +529,7 @@ static void parse_cpuinfo_linux(HOST_INFO& host) {
             strlcpy(buf2, strchr(buf, ':') + 2, ((t<sizeof(buf2))?t:sizeof(buf2)));
             strip_whitespace(buf2);
             if (strlen(host.product_name)) {
-                strcat(host.product_name, " ");
+                safe_strcat(host.product_name, " ");
             }
             safe_strcat(host.product_name, buf2);
         }
@@ -557,7 +553,7 @@ static void parse_cpuinfo_linux(HOST_INFO& host) {
                 char *coma = NULL;
                 if ((coma = strrchr(buf, ','))) {   /* we have ", altivec supported" */
                     *coma = '\0';    /* strip the unwanted line */
-                    strcpy(features, "altivec");
+                    safe_strcpy(features, "altivec");
                     features_found = true;
                 }
 #endif
@@ -667,7 +663,7 @@ static void parse_cpuinfo_linux(HOST_INFO& host) {
     safe_strcpy(model_buf, host.p_model);
 #if !defined(__aarch64__) && !defined(__arm__)
     if (family>=0 || model>=0 || stepping>0) {
-        strcat(model_buf, " [");
+        safe_strcat(model_buf, " [");
         if (family>=0) {
             sprintf(buf, "Family %d ", family);
             safe_strcat(model_buf, buf);
@@ -680,11 +676,11 @@ static void parse_cpuinfo_linux(HOST_INFO& host) {
             sprintf(buf, "Stepping %d", stepping);
             safe_strcat(model_buf, buf);
         }
-        strcat(model_buf, "]");
+        safe_strcat(model_buf, "]");
     }
 #else
     if (model_info_found) {
-        strcat(model_buf, " [");
+        safe_strcat(model_buf, " [");
         if (strlen(implementer)>0) {
             sprintf(buf, "Impl %s ", implementer);
             safe_strcat(model_buf, buf);
@@ -705,7 +701,7 @@ static void parse_cpuinfo_linux(HOST_INFO& host) {
             sprintf(buf, "Rev %s", revision);
             safe_strcat(model_buf, buf);
         }
-        strcat(model_buf, "]");
+        safe_strcat(model_buf, "]");
     }
 #endif
     if (strlen(features)) {
@@ -724,10 +720,10 @@ static void parse_cpuinfo_linux(HOST_INFO& host) {
 
 void use_cpuid(HOST_INFO& host) {
     u_int p[4];
-    int hasMMX, hasSSE, hasSSE2, hasSSE3, has3DNow, has3DNowExt;
+    int hasMMX, hasSSE, hasSSE2, hasSSE3, has3DNow, has3DNowExt, hasAVX;
     char capabilities[256];
 
-    hasMMX = hasSSE = hasSSE2 = hasSSE3 = has3DNow = has3DNowExt = 0;
+    hasMMX = hasSSE = hasSSE2 = hasSSE3 = has3DNow = has3DNowExt = hasAVX = 0;
     do_cpuid(0x0, p);
 
     if (p[0] >= 0x1) {
@@ -737,6 +733,7 @@ void use_cpuid(HOST_INFO& host) {
         hasMMX  = (p[3] & (1 << 23 )) >> 23; // 0x0800000
         hasSSE  = (p[3] & (1 << 25 )) >> 25; // 0x2000000
         hasSSE2 = (p[3] & (1 << 26 )) >> 26; // 0x4000000
+        hasAVX  = (p[2] & (1 << 28 )) >> 28;
         hasSSE3 = (p[2] & (1 << 0 )) >> 0;
     }
 
@@ -755,6 +752,7 @@ void use_cpuid(HOST_INFO& host) {
     if (has3DNow) safe_strcat(capabilities, "3dnow ");
     if (has3DNowExt) safe_strcat(capabilities, "3dnowext ");
     if (hasMMX) safe_strcat(capabilities, "mmx ");
+    if (hasAVX) safe_strcat(capabilities, "avx ");
     strip_whitespace(capabilities);
     char buf[1024];
     snprintf(buf, sizeof(buf), "%s [] [%s]",
@@ -1159,7 +1157,7 @@ int HOST_INFO::get_cpu_info() {
     long cpu_type;
     char *cpu_type_name;
 
-    strcpy(p_vendor, "HP (DEC)");
+    safe_strcpy(p_vendor, "HP (DEC)");
 
     getsysinfo( GSI_PROC_TYPE, (caddr_t) &cpu_type, sizeof( cpu_type));
     CPU_TYPE_TO_TEXT( (cpu_type& 0xffffffff), cpu_type_name);
@@ -1454,11 +1452,10 @@ int HOST_INFO::get_os_info() {
 
 #if LINUX_LIKE_SYSTEM
     bool found_something = false;
-    char buf2[256];
     char dist_name[256], dist_version[256];
     string os_version_extra("");
-    strcpy(dist_name, "");
-    strcpy(dist_version, "");
+    safe_strcpy(dist_name, "");
+    safe_strcpy(dist_version, "");
 
     // see: http://refspecs.linuxbase.org/LSB_4.1.0/LSB-Core-generic/LSB-Core-generic/lsbrelease.html
     // although the output is not clearly specified it seems to be constant
@@ -1492,7 +1489,7 @@ int HOST_INFO::get_os_info() {
         os_version_extra = (string)os_version;
         safe_strcpy(os_version, dist_version);
         if (strlen(dist_name)) {
-            strcat(os_name, " ");
+            safe_strcat(os_name, " ");
             safe_strcat(os_name, dist_name);
         }
     }
@@ -1514,9 +1511,9 @@ int HOST_INFO::get_os_info() {
     }
 
     if (!os_version_extra.empty()) {
-        strcat(os_version, " [");
-        strcat(os_version, os_version_extra.c_str());
-        strcat(os_version, "]");
+        safe_strcat(os_version, " [");
+        safe_strcat(os_version, os_version_extra.c_str());
+        safe_strcat(os_version, "]");
     }
 #endif //LINUX_LIKE_SYSTEM
     return 0;
@@ -1567,45 +1564,58 @@ inline bool device_idle(time_t t, const char *device) {
     return stat(device, &sbuf) || (sbuf.st_atime < t);
 }
 
+// list of directories and prefixes of TTY devices
+//
 static const struct dir_tty_dev {
     const char *dir;
     const char *dev;
 } tty_patterns[] = {
 #ifdef unix
-    { "/dev","tty" },
-    { "/dev","pty" },
-    { "/dev/pts","" },
+    { "/dev", "tty" },
+    { "/dev", "pty" },
+    { "/dev/pts", NULL },
 #endif
     // add other ifdefs here as necessary.
     { NULL, NULL },
 };
 
+// Make a list of all TTY devices on the system.
+//
 vector<string> get_tty_list() {
-    // Create a list of all terminal devices on the system.
     char devname[1024];
     char fullname[1024];
-    int done,i=0;
     vector<string> tty_list;
 
-    do {
-        DIRREF dev=dir_open(tty_patterns[i].dir);
-        if (dev) {
-            do {
-                // get next file
-                done=dir_scan(devname,dev,1024);
-                // does it match our tty pattern? If so, add it to the tty list.
-                if (!done && (strstr(devname,tty_patterns[i].dev) == devname)) {
-                    // don't add anything starting with .
-                    if (devname[0] != '.') {
-                        sprintf(fullname,"%s/%s",tty_patterns[i].dir,devname);
-                        tty_list.push_back(fullname);
-                    }
+    for (int i=0; ; i++) {
+        if (tty_patterns[i].dir == NULL) break;
+        DIRREF dev = dir_open(tty_patterns[i].dir);
+        if (!dev) continue;
+        while (1) {
+            if (dir_scan(devname, dev, 1024)) break;
+            if (devname[0] == '.') continue;
+
+            // check name prefix
+            //
+            if (tty_patterns[i].dev) {
+                if ((strstr(devname, tty_patterns[i].dev) != devname)) continue;
+            }
+
+            sprintf(fullname, "%s/%s", tty_patterns[i].dir, devname);
+
+            // check for ignored paths
+            //
+            bool ignore = false;
+            for (unsigned int j=0; j<cc_config.ignore_tty.size(); j++) {
+                if (strstr(fullname, cc_config.ignore_tty[j].c_str()) == fullname) {
+                    ignore = true;
+                    break;
                 }
-            } while (!done);
-            dir_close(dev);
+            }
+            if (ignore) continue;
+            tty_list.push_back(fullname);
         }
-        i++;
-    } while (tty_patterns[i].dir != NULL);
+        dir_close(dev);
+    }
     return tty_list;
 }
 
